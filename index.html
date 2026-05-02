@@ -3,278 +3,523 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Dungeon Explorer: Labyrinth of Choices</title>
-    <!-- 引入古典襯線字體 -->
+    <title>Bio-Scanner: Protocol X</title>
     <style>
-        @import url('https://fonts.googleapis.com/css2?family=Cinzel:wght@700&display=swap');
+        @import url('https://fonts.googleapis.com/css2?family=Orbitron:wght@400;700&family=Noto+Sans+TC:wght@400;700&display=swap');
 
         :root {
-            --trap-red: #8b0000;
-            --torch-gold: #ffaa00;
-            --parchment-bg: rgba(30, 15, 5, 0.85);
-            --interface-border: rgba(255, 170, 0, 0.4);
+            --radar-green: #00ff41;
+            --radar-dark: #002200;
+            --alert-red: #ff003c;
+            --cyan: #00e5ff;
+            --bg-color: #020a04;
         }
 
         body {
-            margin: 0; background: #050200; color: #e0d0c0;
-            font-family: 'Cinzel', "PMingLiU", "DFKai-SB", serif; /* 古典襯線與楷體/明體 */
-            overflow: hidden;
+            margin: 0; background: var(--bg-color); color: var(--radar-green);
+            font-family: 'Noto Sans TC', 'Orbitron', sans-serif;
+            overflow: hidden; user-select: none;
         }
 
-        /* 3D 畫布 */
-        #render-canvas {
+        /* CRT 掃描線濾鏡 */
+        .scanlines {
+            position: fixed; top: 0; left: 0; width: 100vw; height: 100vh;
+            background: linear-gradient(rgba(18, 16, 16, 0) 50%, rgba(0, 0, 0, 0.25) 50%), 
+                        linear-gradient(90deg, rgba(255, 0, 0, 0.06), rgba(0, 255, 0, 0.02), rgba(0, 0, 255, 0.06));
+            background-size: 100% 4px, 6px 100%;
+            pointer-events: none; z-index: 50;
+        }
+
+        /* 遊戲畫布 */
+        #radar-canvas {
             width: 100vw; height: 100vh; display: block;
         }
 
         /* HUD 狀態列 */
         #hud {
-            position: absolute; top: 0; width: 100%; display: flex;
-            justify-content: space-between; padding: 20px 40px; box-sizing: border-box;
-            background: linear-gradient(to bottom, rgba(0,0,0,0.9), transparent);
-            pointer-events: none;
+            position: absolute; top: 0; left: 0; width: 100%; display: flex;
+            justify-content: space-between; padding: 25px 40px; box-sizing: border-box;
+            pointer-events: none; z-index: 10;
         }
 
-        .stat { font-size: 1.3em; text-shadow: 0 0 10px var(--trap-red); letter-spacing: 2px; }
-        .val { color: var(--torch-gold); font-weight: bold; font-size: 1.6em; }
+        .hud-panel {
+            background: rgba(0, 30, 0, 0.7); border: 1px solid var(--radar-green);
+            padding: 10px 20px; border-radius: 4px; box-shadow: 0 0 15px rgba(0, 255, 65, 0.2);
+        }
+        
+        .stat-label { font-family: 'Orbitron'; font-size: 0.9em; opacity: 0.8; }
+        .stat-val { font-weight: bold; font-size: 1.8em; text-shadow: 0 0 8px var(--radar-green); }
+        #hp.danger { color: var(--alert-red); text-shadow: 0 0 8px var(--alert-red); }
 
-        /* 題目顯示區 (仿古卷軸風格) */
-        #question-overlay {
-            position: absolute; top: 50%; left: 50%; transform: translate(-50%, -120%);
-            width: 85%; max-width: 700px; text-align: center;
-            background: var(--parchment-bg); border: 2px solid var(--interface-border);
-            padding: 30px; border-radius: 5px; backdrop-filter: blur(4px);
-            box-shadow: 0 0 40px rgba(255, 170, 0, 0.15), inset 0 0 20px rgba(0,0,0,0.8);
-            transition: opacity 0.5s;
+        /* 題目顯示區 */
+        #terminal-box {
+            position: absolute; top: 15%; left: 50%; transform: translateX(-50%);
+            width: 80%; max-width: 800px; text-align: center;
+            pointer-events: none; z-index: 10;
         }
 
-        .q-text { font-size: 1.5em; line-height: 1.6; margin-bottom: 20px; text-shadow: 2px 2px 4px #000; }
-
-        /* 岔路選擇按鈕 */
-        #choice-grid {
-            position: absolute; bottom: 80px; left: 50%; transform: translateX(-50%);
-            display: flex; gap: 20px; width: 90%; justify-content: center;
+        .term-header {
+            font-family: 'Orbitron'; font-size: 1em; color: var(--cyan);
+            letter-spacing: 2px; margin-bottom: 10px; text-shadow: 0 0 5px var(--cyan);
         }
 
-        .path-btn {
-            background: rgba(15, 5, 0, 0.9); border: 1px solid var(--torch-gold);
-            color: #e0d0c0; padding: 15px 25px; cursor: pointer; border-radius: 3px;
-            font-size: 1.2em; font-family: inherit; transition: all 0.3s; flex: 1; max-width: 200px;
-            box-shadow: inset 0 0 10px rgba(255, 170, 0, 0.2);
-        }
-        .path-btn:hover { background: var(--torch-gold); color: #2b1100; transform: translateY(-5px); font-weight: bold; box-shadow: 0 0 20px var(--torch-gold); }
-        .path-btn:active { transform: scale(0.95); }
-
-        /* 觸發陷阱濾鏡 */
-        #crash-filter {
-            position: fixed; top: 0; left: 0; width: 100%; height: 100%;
-            background: #4a0000; opacity: 0; pointer-events: none; z-index: 50;
-            mix-blend-mode: multiply;
+        #q-content {
+            font-size: 1.5em; line-height: 1.6; font-weight: bold;
+            background: rgba(0, 15, 0, 0.85); border-left: 4px solid var(--cyan);
+            border-right: 4px solid var(--cyan); padding: 15px 30px;
+            box-shadow: inset 0 0 20px rgba(0, 229, 255, 0.1);
         }
 
-        @keyframes crash-flash {
-            0% { opacity: 0.8; }
-            100% { opacity: 0; }
+        /* 系統錯誤 (Glitch) 特效 */
+        body.glitch-active { animation: glitch-skew 0.3s cubic-bezier(0.25, 0.46, 0.45, 0.94) both infinite; }
+        body.glitch-active #radar-canvas { filter: hue-rotate(90deg) contrast(200%) invert(1); }
+
+        @keyframes glitch-skew {
+            0% { transform: translate(0) }
+            20% { transform: translate(-5px, 5px) }
+            40% { transform: translate(-5px, -5px) }
+            60% { transform: translate(5px, 5px) }
+            80% { transform: translate(5px, -5px) }
+            100% { transform: translate(0) }
         }
 
         /* 啟動選單 */
         #start-screen {
             position: fixed; top: 0; left: 0; width: 100%; height: 100%;
-            background: radial-gradient(circle at center, #1a0a00 0%, #000000 100%);
-            z-index: 100; display: flex; flex-direction: column;
+            background: #010a02; z-index: 100; display: flex; flex-direction: column;
             justify-content: center; align-items: center; text-align: center;
         }
+
+        .title { font-family: 'Orbitron'; color: var(--radar-green); font-size: 4em; letter-spacing: 5px; text-shadow: 0 0 20px var(--radar-green); margin: 0; }
+        .subtitle { color: var(--cyan); font-size: 1.2em; margin-bottom: 40px; letter-spacing: 2px; }
         
-        .title-main {
-            color: var(--torch-gold); font-size: 4.5em; letter-spacing: 8px;
-            text-shadow: 0 0 20px var(--torch-gold), 4px 4px 0px #4a0000;
-            margin-bottom: 10px; font-family: 'Cinzel', serif;
+        button {
+            background: rgba(0, 255, 65, 0.1); border: 2px solid var(--radar-green);
+            color: var(--radar-green); padding: 15px 40px; font-size: 1.5em;
+            cursor: pointer; font-family: 'Orbitron', 'Noto Sans TC';
+            transition: all 0.3s; text-transform: uppercase;
         }
+        button:hover { background: var(--radar-green); color: black; box-shadow: 0 0 20px var(--radar-green); }
+
     </style>
 </head>
 <body>
 
+<div class="scanlines"></div>
+
 <div id="start-screen">
-    <h1 class="title-main">DUNGEON DELVER</h1>
-    <p style="color: #a08060; font-size: 1.2em; letter-spacing: 5px;">第一人稱・迷宮探索・智力檢定</p>
-    <button onclick="initGame()" style="margin-top:50px; padding:20px 60px; font-size:1.5em; background:rgba(255,170,0,0.1); border:2px solid var(--torch-gold); color:var(--torch-gold); font-family: inherit; cursor:pointer; transition: 0.3s;">
-        點燃火把，進入迷宮
-    </button>
+    <h1 class="title">BIO-SCANNER</h1>
+    <p class="subtitle">PROTOCOL: VITAL KNOWLEDGE RETRIEVAL</p>
+    <p style="margin-bottom: 30px; color: #aaa; max-width: 600px; line-height: 1.6;">
+        [系統提示] 點擊雷達畫面中帶有正確解答的異常訊號光點 (Blips)。<br>錯誤的標定將導致系統反噬。
+    </p>
+    <button onclick="initGame()">Initialize Scan</button>
 </div>
 
-<div id="crash-filter"></div>
-
-<div id="hud">
-    <div class="stat">生命力 (HP): <span id="hp" class="val">100</span></div>
-    <div class="stat">深入層數 (DEPTH): <span id="progress" class="val">0/20</span></div>
+<div id="hud" style="display:none;">
+    <div class="hud-panel">
+        <div class="stat-label">SYSTEM INTEGRITY</div>
+        <div id="hp" class="stat-val">100%</div>
+    </div>
+    <div class="hud-panel">
+        <div class="stat-label">DATA DECRYPTED</div>
+        <div class="stat-val"><span id="progress" style="color:var(--cyan)">0</span> / 20</div>
+    </div>
 </div>
 
-<canvas id="render-canvas"></canvas>
-
-<div id="question-overlay">
-    <div id="q-content" class="q-text">解讀古老的銘文...</div>
+<div id="terminal-box" style="display:none;">
+    <div class="term-header">>>> INCOMING QUERY_</div>
+    <div id="q-content">等待訊號連線中...</div>
 </div>
 
-<div id="choice-grid"></div>
+<canvas id="radar-canvas"></canvas>
 
 <script>
-    // --- 奇幻地下城題庫範例 ---
-    // (你可以隨時把原本的 100 題健康知識貼回來覆蓋這個陣列)
+    // --- 完整 100 題題庫 (未修改) ---
     const rawQuestions = [
-        { q: "前方的石像鬼開口了：「什麼東西早上四條腿，中午兩條腿，晚上三條腿？」", a: ["人類", "蜘蛛", "猴子"], correct: 0 },
-        { q: "在古老的傳說中，什麼怪物凝視人類會使其化為石像？", a: ["牛頭人", "梅杜莎", "吸血鬼"], correct: 1 },
-        { q: "你發現了武器庫，對付「狼人」最有效的金屬材質是？", a: ["秘銀", "黃金", "純銀"], correct: 2 },
-        { q: "巨龍通常喜歡在巢穴中收集什麼東西？", a: ["骨骸", "閃亮的財寶", "古籍"], correct: 1 },
-        { q: "傳說中拔出「石中劍」並成為不列顛之王的是？", a: ["亞瑟王", "查理曼大帝", "亞歷山大"], correct: 0 },
-        { q: "矮人（Dwarf）一族通常最引以為傲的技藝是？", a: ["航海", "鍛造與採礦", "弓箭"], correct: 1 },
-        { q: "吸血鬼的弱點通常「不包含」下列何者？", a: ["大蒜", "陽光", "純金十字架"], correct: 2 },
-        { q: "世界樹（Yggdrasil）是來自哪一個神話體系的概念？", a: ["希臘神話", "北歐神話", "埃及神話"], correct: 1 },
-        { q: "精靈（Elf）通常給人的印象特徵是？", a: ["尖耳與長壽", "矮小且粗壯", "力大無窮"], correct: 0 },
-        { q: "魔法師用來施展法術的媒介，通常「不包括」什麼？", a: ["魔杖", "科技晶片", "古老法術書"], correct: 1 }
+        { q: "突然感到頭暈、冒冷汗、手抖，最可能的原因？", a: ["低血糖", "高血壓", "脫水"], correct: 0 },
+        { q: "發生中暑時，第一時間該做什麼？", a: ["大量喝冰水", "移至陰涼處並鬆開衣物", "立刻吃退燒藥"], correct: 1 },
+        { q: "若有人失去意識且無呼吸，應施作？", a: ["哈姆立克", "人工呼吸", "CPR與AED"], correct: 2 },
+        { q: "異物梗塞無法發聲時，採取？", a: ["哈姆立克法", "大量拍背", "催吐"], correct: 0 },
+        { q: "燒燙傷處理的第一步？", a: ["塗抹牙膏", "沖冷水 20 分鐘", "冰敷"], correct: 1 },
+        { q: "流鼻血時頭部姿勢？", a: ["向後仰", "稍微前傾", "平躺"], correct: 1 },
+        { q: "嚴重出血時優先採取？", a: ["直接壓迫止血", "抹止血粉", "沖水"], correct: 0 },
+        { q: "懷疑骨折首要原則？", a: ["推回原位", "固定傷處減少移動", "揉捏"], correct: 1 },
+        { q: "FAST口訣中的 F 代表？", a: ["臉部歪斜(Face)", "發燒", "昏倒"], correct: 0 },
+        { q: "過敏性休克不包含哪種徵兆？", a: ["呼吸困難", "血壓下降", "食慾大增"], correct: 2 },
+        { q: "心肌梗塞典型痛感？", a: ["刺痛", "胸口壓迫感", "腹痛"], correct: 1 },
+        { q: "RICE原則中的 I 是？", a: ["運動", "冰敷(Ice)", "碘酒"], correct: 1 },
+        { q: "毒蛇咬傷錯誤處理？", a: ["用嘴吸毒", "保持冷靜", "記住蛇特徵"], correct: 0 },
+        { q: "癲癇發作時何者正確？", a: ["塞入異物", "保護頭部", "按住肢體"], correct: 1 },
+        { q: "溺水救起後應防範？", a: ["二次溺水", "胃出血", "感冒"], correct: 0 },
+        { q: "蜂螫留針如何處理？", a: ["手擠", "信用卡刮除", "直接拔"], correct: 1 },
+        { q: "氣喘發作優先使用？", a: ["運動", "擴張噴霧", "喝水"], correct: 1 },
+        { q: "一氧化碳中毒特徵？", a: ["皮膚發紫", "櫻桃紅唇", "咳嗽"], correct: 1 },
+        { q: "貓狗咬傷擔心的疾病？", a: ["破傷風", "狂犬病", "敗血症"], correct: 1 },
+        { q: "快暈倒時應？", a: ["蹲下或平躺", "快走", "仰頭"], correct: 0 },
+        { q: "每日鈉攝取上限？", a: ["2400mg", "5000mg", "1000mg"], correct: 0 },
+        { q: "心血管危害最大的脂肪？", a: ["飽和", "反式脂肪", "不飽和"], correct: 1 },
+        { q: "預防骨質疏鬆補充？", a: ["鈣與維D", "維C", "鐵"], correct: 0 },
+        { q: "深綠蔬菜富含？", a: ["維A與葉酸", "維B12", "維D"], correct: 0 },
+        { q: "優質蛋白質來源？", a: ["培根", "毛豆/雞蛋", "薯條"], correct: 1 },
+        { q: "運動中主要補充？", a: ["纖維", "電解質飲品", "咖啡"], correct: 1 },
+        { q: "地中海飲食核心油？", a: ["橄欖油", "豬油", "棕櫚油"], correct: 0 },
+        { q: "維生素C主要來源？", a: ["五穀", "肉", "蔬果"], correct: 2 },
+        { q: "幫助鐵質吸收？", a: ["茶", "維生素C", "牛奶"], correct: 1 },
+        { q: "高GI食物？", a: ["糙米", "白吐司", "燕麥"], correct: 1 },
+        { q: "天天五蔬果是？", a: ["三蔬兩果", "五種果", "五盤菜"], correct: 0 },
+        { q: "紅酒抗氧化成分？", a: ["白藜蘆醇", "咖啡因", "胡蘿蔔素"], correct: 0 },
+        { q: "缺維A易導致？", a: ["壞血病", "夜盲症", "腳氣病"], correct: 1 },
+        { q: "曬太陽可產生維？", a: ["維D", "維E", "維K"], correct: 0 },
+        { q: "人體主能量來源？", a: ["蛋白", "碳水化合物", "礦物質"], correct: 1 },
+        { q: "非全穀雜糧類？", a: ["玉米", "白麵條", "地瓜"], correct: 1 },
+        { q: "素食者易缺？", a: ["維C", "維B12", "維A"], correct: 1 },
+        { q: "精緻糖過多導致？", a: ["齲齒肥胖", "近視", "過敏"], correct: 0 },
+        { q: "抽筋相關礦物質？", a: ["鐵", "鉀與鎂", "鋅"], correct: 1 },
+        { q: "喝奶後腹瀉？", a: ["乳糖不耐", "牛奶中毒", "消化不良"], correct: 0 },
+        { q: "人類正常體溫範圍？", a: ["35.5-36℃", "36.5-37.5℃", "38-39℃"], correct: 1 },
+        { q: "靜止心跳率範圍？", a: ["60-100次", "120次", "40次"], correct: 0 },
+        { q: "飲水量計算公式？", a: ["體重x30cc", "體重x10", "4公升"], correct: 0 },
+        { q: "正常血壓應低於？", a: ["120/80", "140/90", "160/100"], correct: 0 },
+        { q: "人體最大器官？", a: ["肺", "肝", "皮膚"], correct: 2 },
+        { q: "紅血球功能？", a: ["免疫", "運氧", "凝血"], correct: 1 },
+        { q: "胰島素分泌器官？", a: ["胃", "胰臟", "膽囊"], correct: 1 },
+        { q: "熬夜傷害代謝功能？", a: ["肝與大腦", "肌肉", "大腸"], correct: 0 },
+        { q: "近視聚焦在視網膜？", a: ["前方", "後方", "上方"], correct: 0 },
+        { q: "骨骼總數約？", a: ["106塊", "206塊", "306塊"], correct: 1 },
+        { q: "全能捐血血型？", a: ["A", "B", "O型"], correct: 2 },
+        { q: "胃酸主要成分？", a: ["硫酸", "鹽酸", "醋酸"], correct: 1 },
+        { q: "疫苗主要作用？", a: ["治療", "產生抗體", "增肌"], correct: 1 },
+        { q: "抗生素治療哪種感染？", a: ["病毒", "細菌", "過敏"], correct: 1 },
+        { q: "建議睡眠時間？", a: ["4-5小時", "7-9小時", "12小時"], correct: 1 },
+        { q: "藍光影響？", a: ["食慾", "睡眠品質", "聽力"], correct: 1 },
+        { q: "洗手正確步驟？", a: ["濕搓沖捧擦", "濕沖擦", "沖脫泡蓋"], correct: 0 },
+        { q: "預防蛀牙成分？", a: ["氟", "木醣醇", "薄荷"], correct: 0 },
+        { q: "抽菸增加何種癌風險？", a: ["肺癌", "胃癌", "皮癌"], correct: 0 },
+        { q: "PM2.5 指的是直徑？", a: ["重金屬", "懸浮微粒", "氣體"], correct: 1 },
+        { q: "有氧運動建議時間？", a: ["10秒", "20-30分", "5小時"], correct: 1 },
+        { q: "重訓肌肉痠痛原因？", a: ["撕裂修補", "骨折", "脂肪"], correct: 0 },
+        { q: "最大心跳公式？", a: ["220-年齡", "100+年齡", "180"], correct: 0 },
+        { q: "伸展拉伸最佳時機？", a: ["起床", "運動後", "飯前"], correct: 1 },
+        { q: "深蹲鍛鍊？", a: ["背肌", "下肢肌群", "胸肌"], correct: 1 },
+        { q: "健走手部應？", a: ["插袋", "自然擺動", "舉高"], correct: 1 },
+        { q: "暖身目的？", a: ["美觀", "預防受傷", "消耗脂肪"], correct: 1 },
+        { q: "核心肌不包括？", a: ["腹", "背", "手指"], correct: 2 },
+        { q: "中強度運動感覺？", a: ["能唱歌", "微喘能說話", "無法呼吸"], correct: 1 },
+        { q: "收操有助於？", a: ["緩解乳酸", "長肌", "變矮"], correct: 0 },
+        { q: "慢跑屬於？", a: ["有氧", "無氧", "伸展"], correct: 0 },
+        { q: "久坐不包含哪種危害？", a: ["心血管病", "視力變強", "代謝病"], correct: 1 },
+        { q: "游泳適合肥胖者？", a: ["涼快", "浮力減壓", "有氧氣"], correct: 1 },
+        { q: "仰臥起坐訓練？", a: ["腹肌", "小腿", "脖子"], correct: 0 },
+        { q: "側腹痛應？", a: ["快跑", "放慢呼吸", "坐下"], correct: 1 },
+        { q: "肌肉密度比脂肪？", a: ["輕", "重", "一樣"], correct: 1 },
+        { q: "重訓提升？", a: ["基礎代謝", "身高", "聽力"], correct: 0 },
+        { q: "平衡訓練預防？", a: ["跌倒", "嬰兒受傷", "職業傷"], correct: 0 },
+        { q: "膝蓋受傷避免？", a: ["深蹲", "睡覺", "吃飯"], correct: 0 },
+        { q: "運動後補肌肉？", a: ["碳水蛋白質", "糖水", "酒精"], correct: 0 },
+        { q: "長期壓力分泌？", a: ["生長", "皮質醇", "褪黑素"], correct: 1 },
+        { q: "正念核心？", a: ["過去", "專注當下", "未來"], correct: 1 },
+        { q: "憤怒做法？", a: ["回擊", "深呼吸數到十", "壓抑"], correct: 1 },
+        { q: "社交支持影響？", a: ["沒差", "紓壓長壽", "變老"], correct: 1 },
+        { q: "憂鬱症差別？", a: ["時間與功能", "流淚", "吃藥"], correct: 0 },
+        { q: "適度壓力稱？", a: ["惡性", "良性", "無效"], correct: 1 },
+        { q: "睡前避免？", a: ["讀書", "發光電子品", "音樂"], correct: 1 },
+        { q: "生理回饋控制？", a: ["身高", "自主神經", "指甲"], correct: 1 },
+        { q: "復原力是？", a: ["忘記", "逆境恢復", "力氣"], correct: 1 },
+        { q: "社交孤立風險？", a: ["失智", "近視", "蛀牙"], correct: 0 },
+        { q: "笑不包含？", a: ["多巴胺", "降壓", "增肺活量"], correct: 2 },
+        { q: "心理紓壓運動？", a: ["瑜伽", "憋氣", "熬夜"], correct: 0 },
+        { q: "心理諮商對象？", a: ["瘋子", "任何人", "有錢人"], correct: 1 },
+        { q: "寫日記益處？", a: ["打字", "覺察宣洩", "消耗熱量"], correct: 1 },
+        { q: "同理心是？", a: ["同意觀點", "感受情緒", "金錢"], correct: 1 },
+        { q: "深呼吸強調？", a: ["胸呼吸", "呼氣長於吸氣", "憋氣"], correct: 1 },
+        { q: "燃盡發生在？", a: ["睡飽", "過勞高壓", "看電視"], correct: 1 },
+        { q: "焦慮反應？", a: ["放鬆", "心跳加速手汗", "嗜睡"], correct: 1 },
+        { q: "肯定特質？", a: ["自戀", "自尊", "自大"], correct: 1 },
+        { q: "親友過世歷程？", a: ["叛逆", "哀悼歷程", "更年期"], correct: 1 }
     ];
 
-    // --- 遊戲引擎設定 ---
+    // --- 雷達遊戲引擎 ---
+    const canvas = document.getElementById('radar-canvas');
+    const ctx = canvas.getContext('2d');
+    
     let state = {
         hp: 100, step: 0, goal: 20, active: false,
-        cameraZ: 0, targetZ: 0, 
-        currentQ: null, isMoving: false,
-        angle: 0, targetAngle: 0
+        isResolving: false, radarAngle: 0, currentQ: null
     };
 
-    const canvas = document.getElementById('render-canvas');
-    const ctx = canvas.getContext('2d');
+    let blips = [];     // 儲存選項光點
+    let particles = []; // 儲存爆炸粒子
+    let cx, cy, radarRadius;
 
     function resize() {
         canvas.width = window.innerWidth;
         canvas.height = window.innerHeight;
+        cx = canvas.width / 2;
+        cy = canvas.height / 2;
+        radarRadius = Math.min(cx, cy) * 0.75; // 雷達範圍
     }
     window.addEventListener('resize', resize);
     resize();
 
     function initGame() {
         document.getElementById('start-screen').style.display = 'none';
+        document.getElementById('hud').style.display = 'flex';
+        document.getElementById('terminal-box').style.display = 'block';
         state.active = true;
-        animate();
+        state.hp = 100;
+        state.step = 0;
+        updateUI();
         nextQuestion();
+        requestAnimationFrame(gameLoop);
     }
 
-    // --- 3D 繪製邏輯 (火把石牆風格) ---
-    function animate() {
+    // 主繪製迴圈
+    function gameLoop() {
         if (!state.active) return;
 
-        state.cameraZ += (state.targetZ - state.cameraZ) * 0.05;
-        state.angle += (state.targetAngle - state.angle) * 0.1;
+        // 製造雷達掃描殘影 (半透明覆蓋)
+        ctx.fillStyle = 'rgba(2, 10, 4, 0.15)';
+        ctx.fillRect(0, 0, canvas.width, canvas.height);
 
-        const w = canvas.width, h = canvas.height;
-        ctx.fillStyle = '#050200'; // 偏向深棕色的黑，模擬地窖
-        ctx.fillRect(0, 0, w, h);
+        drawRadarGrid();
+        drawSweepingLine();
+        drawBlips();
+        updateAndDrawParticles();
 
-        ctx.save();
-        ctx.translate(w / 2, h / 2);
-        ctx.rotate(state.angle);
+        state.radarAngle += 0.03; // 雷達旋轉速度
+        requestAnimationFrame(gameLoop);
+    }
 
-        // 繪製迷宮隧道 (火光色系)
-        for (let i = 20; i > 0; i--) {
-            let z = (i * 200) - (state.cameraZ % 200);
-            let size = 150000 / z;
-            let alpha = 1 - (z / 4000);
-            
-            // 使用橘黃色模擬火把反光
-            ctx.strokeStyle = `rgba(255, 150, 20, ${alpha})`;
-            ctx.lineWidth = 3; 
-            
-            ctx.strokeRect(-size/2, -size/2, size, size);
-            
+    function drawRadarGrid() {
+        ctx.strokeStyle = 'rgba(0, 255, 65, 0.3)';
+        ctx.lineWidth = 1;
+        
+        // 同心圓
+        for(let i=1; i<=3; i++) {
             ctx.beginPath();
-            ctx.moveTo(-size/2, -size/2); ctx.lineTo(-size*0.8, -size*0.8);
+            ctx.arc(cx, cy, radarRadius * (i/3), 0, Math.PI * 2);
             ctx.stroke();
         }
-        ctx.restore();
 
-        requestAnimationFrame(animate);
+        // 十字線
+        ctx.beginPath();
+        ctx.moveTo(cx, cy - radarRadius); ctx.lineTo(cx, cy + radarRadius);
+        ctx.moveTo(cx - radarRadius, cy); ctx.lineTo(cx + radarRadius, cy);
+        ctx.stroke();
     }
 
-    function nextQuestion() {
-        if (!state.active) return;
-        state.isMoving = false;
+    function drawSweepingLine() {
+        const endX = cx + Math.cos(state.radarAngle) * radarRadius;
+        const endY = cy + Math.sin(state.radarAngle) * radarRadius;
         
-        const q = rawQuestions[Math.floor(Math.random() * rawQuestions.length)];
-        state.currentQ = q;
+        // 掃描光束
+        ctx.beginPath();
+        ctx.moveTo(cx, cy);
+        ctx.lineTo(endX, endY);
+        ctx.strokeStyle = '#00ff41';
+        ctx.lineWidth = 2;
+        ctx.shadowBlur = 10;
+        ctx.shadowColor = '#00ff41';
+        ctx.stroke();
+        ctx.shadowBlur = 0; // 重置
+    }
 
-        document.getElementById('q-content').innerText = q.q;
-        const grid = document.getElementById('choice-grid');
-        grid.innerHTML = '';
+    function drawBlips() {
+        blips.forEach(blip => {
+            if(blip.hidden) return;
 
-        const directions = ["左通道", "直行", "右通道"];
-        q.a.forEach((ans, i) => {
-            const btn = document.createElement('button');
-            btn.className = 'path-btn';
-            btn.innerText = `${directions[i]}：${ans}`;
-            btn.onclick = () => makeChoice(i);
-            grid.appendChild(btn);
+            // 讓光點稍微閃爍 (呼吸燈)
+            const pulse = 1 + Math.sin(Date.now() / 200 + blip.index) * 0.2;
+            const size = blip.radius * pulse;
+
+            // 繪製光點
+            ctx.beginPath();
+            ctx.arc(blip.x, blip.y, size, 0, Math.PI * 2);
+            ctx.fillStyle = state.isResolving && blip.isCorrect ? '#00e5ff' : '#00ff41';
+            ctx.fill();
+
+            // 繪製選項文字
+            ctx.font = '16px "Noto Sans TC", sans-serif';
+            ctx.fillStyle = '#fff';
+            ctx.textAlign = 'center';
+            ctx.textBaseline = 'middle';
+            
+            // 替文字加個半透明底色確保可讀性
+            const textWidth = ctx.measureText(blip.text).width;
+            ctx.fillStyle = 'rgba(0, 20, 0, 0.8)';
+            ctx.fillRect(blip.x - textWidth/2 - 5, blip.y + 15, textWidth + 10, 24);
+
+            ctx.fillStyle = state.isResolving && blip.isCorrect ? '#00e5ff' : '#00ff41';
+            ctx.fillText(blip.text, blip.x, blip.y + 27);
         });
     }
 
-    function makeChoice(idx) {
-        if (state.isMoving) return;
-        state.isMoving = true;
+    function nextQuestion() {
+        state.isResolving = false;
+        blips = [];
+        const q = rawQuestions[Math.floor(Math.random() * rawQuestions.length)];
+        state.currentQ = q;
 
-        if (idx === state.currentQ.correct) {
-            // 答對：安全深入
-            state.targetZ += 600;
+        // 打字機特效顯示題目
+        const qBox = document.getElementById('q-content');
+        qBox.innerText = "";
+        let i = 0;
+        const typeWriter = setInterval(() => {
+            qBox.innerText += q.q.charAt(i);
+            i++;
+            if(i >= q.q.length) clearInterval(typeWriter);
+        }, 30);
+
+        // 將 3 個選項散佈在雷達的三個方位
+        const baseAngles = [Math.PI/6, 5*Math.PI/6, 3*Math.PI/2]; // 大約散開
+        
+        q.a.forEach((ans, idx) => {
+            const dist = radarRadius * (0.4 + Math.random() * 0.4); // 距離中心 40%~80%
+            const angle = baseAngles[idx] + (Math.random() - 0.5) * 0.8; // 增加隨機偏移
+            
+            blips.push({
+                x: cx + Math.cos(angle) * dist,
+                y: cy + Math.sin(angle) * dist,
+                text: ans,
+                radius: 12, // 判定半徑
+                index: idx,
+                hidden: false,
+                isCorrect: (idx === q.correct)
+            });
+        });
+    }
+
+    // --- 互動與判定 ---
+    // 滑鼠游標變化
+    canvas.addEventListener('mousemove', (e) => {
+        if (!state.active || state.isResolving) return;
+        const rect = canvas.getBoundingClientRect();
+        const mx = e.clientX - rect.left;
+        const my = e.clientY - rect.top;
+        
+        let hovered = blips.some(b => !b.hidden && Math.hypot(mx - b.x, my - b.y) < b.radius * 2.5);
+        canvas.style.cursor = hovered ? 'crosshair' : 'default';
+    });
+
+    // 點擊判定
+    canvas.addEventListener('click', (e) => {
+        if (!state.active || state.isResolving) return;
+        const rect = canvas.getBoundingClientRect();
+        const mx = e.clientX - rect.left;
+        const my = e.clientY - rect.top;
+
+        // 擴大一點點擊判定區 (半徑 * 2.5)
+        const clickedBlip = blips.find(b => !b.hidden && Math.hypot(mx - b.x, my - b.y) < b.radius * 2.5);
+        
+        if (clickedBlip) {
+            handleChoice(clickedBlip);
+        }
+    });
+
+    function handleChoice(blip) {
+        state.isResolving = true;
+        canvas.style.cursor = 'default';
+
+        if (blip.isCorrect) {
+            // 答對：產生藍綠色資料解析特效
+            spawnParticles(blip.x, blip.y, '#00e5ff', 30);
+            
+            // 隱藏其他錯誤光點
+            blips.forEach(b => { if(!b.isCorrect) b.hidden = true; });
+
             state.step++;
             updateUI();
             
             if (state.step >= state.goal) {
                 setTimeout(() => endGame(true), 1500);
             } else {
-                setTimeout(nextQuestion, 1500);
+                setTimeout(nextQuestion, 1200);
             }
         } else {
-            // 答錯：觸發陷阱
+            // 答錯：引發系統干擾
             state.hp -= 20;
-            state.targetAngle = (idx === 0) ? 0.5 : (idx === 2) ? -0.5 : 0.1; 
+            spawnParticles(blip.x, blip.y, '#ff003c', 40);
+            blip.hidden = true; // 點破該錯誤光點
             
-            setTimeout(() => {
-                triggerCrash();
-                state.targetAngle = 0; 
-                updateUI();
-                if (state.hp <= 0) {
-                    endGame(false);
-                } else {
-                    nextQuestion();
-                }
-            }, 600);
+            triggerGlitch();
+            updateUI();
+
+            if (state.hp <= 0) {
+                setTimeout(() => endGame(false), 1000);
+            } else {
+                // 提示正確答案後繼續
+                const qBox = document.getElementById('q-content');
+                qBox.innerHTML = `<span style="color:var(--alert-red);">[連線錯誤]</span> 正確訊號應為：${state.currentQ.a[state.currentQ.correct]}`;
+                setTimeout(nextQuestion, 2000);
+            }
         }
     }
 
-    function triggerCrash() {
-        const filter = document.getElementById('crash-filter');
-        filter.style.animation = 'none';
-        filter.offsetHeight; 
-        filter.style.animation = 'crash-flash 0.8s forwards';
-        
-        const hudMsg = document.createElement('div');
-        hudMsg.style.cssText = "position:absolute; top:40%; left:50%; transform:translate(-50%,-50%); color:#e0d0c0; font-size:2em; text-shadow:0 0 15px red; font-family:'Cinzel', serif;";
-        hudMsg.innerText = "💥 觸發陷阱！正確知識應為：" + state.currentQ.a[state.currentQ.correct];
-        document.body.appendChild(hudMsg);
-        setTimeout(() => hudMsg.remove(), 2500);
+    // --- 特效與狀態管理 ---
+    function triggerGlitch() {
+        document.body.classList.add('glitch-active');
+        setTimeout(() => document.body.classList.remove('glitch-active'), 400);
+    }
+
+    function spawnParticles(x, y, color, amount) {
+        for(let i=0; i<amount; i++) {
+            particles.push({
+                x: x, y: y,
+                vx: (Math.random() - 0.5) * 12,
+                vy: (Math.random() - 0.5) * 12,
+                life: 1.0, color: color
+            });
+        }
+    }
+
+    function updateAndDrawParticles() {
+        for(let i = particles.length - 1; i >= 0; i--) {
+            let p = particles[i];
+            p.x += p.vx; p.y += p.vy;
+            p.life -= 0.03; // 衰減速度
+
+            ctx.globalAlpha = Math.max(0, p.life);
+            ctx.fillStyle = p.color;
+            ctx.beginPath();
+            ctx.arc(p.x, p.y, 3, 0, Math.PI*2);
+            ctx.fill();
+
+            if(p.life <= 0) particles.splice(i, 1);
+        }
+        ctx.globalAlpha = 1.0;
     }
 
     function updateUI() {
-        document.getElementById('hp').innerText = state.hp;
-        document.getElementById('progress').innerText = `${state.step}/${state.goal}`;
+        const hpEl = document.getElementById('hp');
+        hpEl.innerText = state.hp + "%";
+        if(state.hp <= 40) hpEl.classList.add('danger');
+        else hpEl.classList.remove('danger');
+
+        document.getElementById('progress').innerText = state.step;
     }
 
     function endGame(win) {
         state.active = false;
+        document.getElementById('hud').style.display = 'none';
+        document.getElementById('terminal-box').style.display = 'none';
+        
         const screen = document.getElementById('start-screen');
         screen.style.display = 'flex';
-        screen.innerHTML = win ? 
-            `<h1 class="title-main">逃出生天</h1><p style="font-size:1.5em; color:#e0d0c0;">你帶著豐富的知識與財寶重返地表。</p><button onclick="location.reload()" style="margin-top:30px; padding:15px 40px; font-size:1.2em; background:none; border:2px solid var(--torch-gold); color:var(--torch-gold); cursor:pointer;">再次挑戰</button>` :
-            `<h1 class="title-main" style="color:var(--trap-red); text-shadow: 0 0 20px red;">靈魂受困</h1><p style="font-size:1.5em; color:#e0d0c0;">你的知識不足以應付迷宮的險惡，永遠留在了黑暗中。</p><button onclick="location.reload()" style="margin-top:30px; padding:15px 40px; font-size:1.2em; background:none; border:2px solid var(--trap-red); color:var(--trap-red); cursor:pointer;">重塑肉身</button>`;
+        
+        if(win) {
+            screen.innerHTML = `
+                <h1 class="title" style="color:var(--cyan); text-shadow:0 0 20px var(--cyan);">DATA RETRIEVED</h1>
+                <p class="subtitle" style="color:var(--radar-green);">掃描完成，系統防護正常。</p>
+                <button onclick="location.reload()" style="border-color:var(--cyan); color:var(--cyan);">重新啟動掃描</button>`;
+        } else {
+            screen.innerHTML = `
+                <h1 class="title" style="color:var(--alert-red); text-shadow:0 0 20px var(--alert-red);">SYSTEM FAILURE</h1>
+                <p class="subtitle" style="color:gray;">生命跡象中斷，資料損毀。</p>
+                <button onclick="location.reload()" style="border-color:var(--alert-red); color:var(--alert-red);">重啟急救協議</button>`;
+        }
     }
 </script>
 
 </body>
 </html>
-
