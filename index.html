@@ -1,0 +1,280 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Dungeon Explorer: Labyrinth of Choices</title>
+    <!-- 引入古典襯線字體 -->
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Cinzel:wght@700&display=swap');
+
+        :root {
+            --trap-red: #8b0000;
+            --torch-gold: #ffaa00;
+            --parchment-bg: rgba(30, 15, 5, 0.85);
+            --interface-border: rgba(255, 170, 0, 0.4);
+        }
+
+        body {
+            margin: 0; background: #050200; color: #e0d0c0;
+            font-family: 'Cinzel', "PMingLiU", "DFKai-SB", serif; /* 古典襯線與楷體/明體 */
+            overflow: hidden;
+        }
+
+        /* 3D 畫布 */
+        #render-canvas {
+            width: 100vw; height: 100vh; display: block;
+        }
+
+        /* HUD 狀態列 */
+        #hud {
+            position: absolute; top: 0; width: 100%; display: flex;
+            justify-content: space-between; padding: 20px 40px; box-sizing: border-box;
+            background: linear-gradient(to bottom, rgba(0,0,0,0.9), transparent);
+            pointer-events: none;
+        }
+
+        .stat { font-size: 1.3em; text-shadow: 0 0 10px var(--trap-red); letter-spacing: 2px; }
+        .val { color: var(--torch-gold); font-weight: bold; font-size: 1.6em; }
+
+        /* 題目顯示區 (仿古卷軸風格) */
+        #question-overlay {
+            position: absolute; top: 50%; left: 50%; transform: translate(-50%, -120%);
+            width: 85%; max-width: 700px; text-align: center;
+            background: var(--parchment-bg); border: 2px solid var(--interface-border);
+            padding: 30px; border-radius: 5px; backdrop-filter: blur(4px);
+            box-shadow: 0 0 40px rgba(255, 170, 0, 0.15), inset 0 0 20px rgba(0,0,0,0.8);
+            transition: opacity 0.5s;
+        }
+
+        .q-text { font-size: 1.5em; line-height: 1.6; margin-bottom: 20px; text-shadow: 2px 2px 4px #000; }
+
+        /* 岔路選擇按鈕 */
+        #choice-grid {
+            position: absolute; bottom: 80px; left: 50%; transform: translateX(-50%);
+            display: flex; gap: 20px; width: 90%; justify-content: center;
+        }
+
+        .path-btn {
+            background: rgba(15, 5, 0, 0.9); border: 1px solid var(--torch-gold);
+            color: #e0d0c0; padding: 15px 25px; cursor: pointer; border-radius: 3px;
+            font-size: 1.2em; font-family: inherit; transition: all 0.3s; flex: 1; max-width: 200px;
+            box-shadow: inset 0 0 10px rgba(255, 170, 0, 0.2);
+        }
+        .path-btn:hover { background: var(--torch-gold); color: #2b1100; transform: translateY(-5px); font-weight: bold; box-shadow: 0 0 20px var(--torch-gold); }
+        .path-btn:active { transform: scale(0.95); }
+
+        /* 觸發陷阱濾鏡 */
+        #crash-filter {
+            position: fixed; top: 0; left: 0; width: 100%; height: 100%;
+            background: #4a0000; opacity: 0; pointer-events: none; z-index: 50;
+            mix-blend-mode: multiply;
+        }
+
+        @keyframes crash-flash {
+            0% { opacity: 0.8; }
+            100% { opacity: 0; }
+        }
+
+        /* 啟動選單 */
+        #start-screen {
+            position: fixed; top: 0; left: 0; width: 100%; height: 100%;
+            background: radial-gradient(circle at center, #1a0a00 0%, #000000 100%);
+            z-index: 100; display: flex; flex-direction: column;
+            justify-content: center; align-items: center; text-align: center;
+        }
+        
+        .title-main {
+            color: var(--torch-gold); font-size: 4.5em; letter-spacing: 8px;
+            text-shadow: 0 0 20px var(--torch-gold), 4px 4px 0px #4a0000;
+            margin-bottom: 10px; font-family: 'Cinzel', serif;
+        }
+    </style>
+</head>
+<body>
+
+<div id="start-screen">
+    <h1 class="title-main">DUNGEON DELVER</h1>
+    <p style="color: #a08060; font-size: 1.2em; letter-spacing: 5px;">第一人稱・迷宮探索・智力檢定</p>
+    <button onclick="initGame()" style="margin-top:50px; padding:20px 60px; font-size:1.5em; background:rgba(255,170,0,0.1); border:2px solid var(--torch-gold); color:var(--torch-gold); font-family: inherit; cursor:pointer; transition: 0.3s;">
+        點燃火把，進入迷宮
+    </button>
+</div>
+
+<div id="crash-filter"></div>
+
+<div id="hud">
+    <div class="stat">生命力 (HP): <span id="hp" class="val">100</span></div>
+    <div class="stat">深入層數 (DEPTH): <span id="progress" class="val">0/20</span></div>
+</div>
+
+<canvas id="render-canvas"></canvas>
+
+<div id="question-overlay">
+    <div id="q-content" class="q-text">解讀古老的銘文...</div>
+</div>
+
+<div id="choice-grid"></div>
+
+<script>
+    // --- 奇幻地下城題庫範例 ---
+    // (你可以隨時把原本的 100 題健康知識貼回來覆蓋這個陣列)
+    const rawQuestions = [
+        { q: "前方的石像鬼開口了：「什麼東西早上四條腿，中午兩條腿，晚上三條腿？」", a: ["人類", "蜘蛛", "猴子"], correct: 0 },
+        { q: "在古老的傳說中，什麼怪物凝視人類會使其化為石像？", a: ["牛頭人", "梅杜莎", "吸血鬼"], correct: 1 },
+        { q: "你發現了武器庫，對付「狼人」最有效的金屬材質是？", a: ["秘銀", "黃金", "純銀"], correct: 2 },
+        { q: "巨龍通常喜歡在巢穴中收集什麼東西？", a: ["骨骸", "閃亮的財寶", "古籍"], correct: 1 },
+        { q: "傳說中拔出「石中劍」並成為不列顛之王的是？", a: ["亞瑟王", "查理曼大帝", "亞歷山大"], correct: 0 },
+        { q: "矮人（Dwarf）一族通常最引以為傲的技藝是？", a: ["航海", "鍛造與採礦", "弓箭"], correct: 1 },
+        { q: "吸血鬼的弱點通常「不包含」下列何者？", a: ["大蒜", "陽光", "純金十字架"], correct: 2 },
+        { q: "世界樹（Yggdrasil）是來自哪一個神話體系的概念？", a: ["希臘神話", "北歐神話", "埃及神話"], correct: 1 },
+        { q: "精靈（Elf）通常給人的印象特徵是？", a: ["尖耳與長壽", "矮小且粗壯", "力大無窮"], correct: 0 },
+        { q: "魔法師用來施展法術的媒介，通常「不包括」什麼？", a: ["魔杖", "科技晶片", "古老法術書"], correct: 1 }
+    ];
+
+    // --- 遊戲引擎設定 ---
+    let state = {
+        hp: 100, step: 0, goal: 20, active: false,
+        cameraZ: 0, targetZ: 0, 
+        currentQ: null, isMoving: false,
+        angle: 0, targetAngle: 0
+    };
+
+    const canvas = document.getElementById('render-canvas');
+    const ctx = canvas.getContext('2d');
+
+    function resize() {
+        canvas.width = window.innerWidth;
+        canvas.height = window.innerHeight;
+    }
+    window.addEventListener('resize', resize);
+    resize();
+
+    function initGame() {
+        document.getElementById('start-screen').style.display = 'none';
+        state.active = true;
+        animate();
+        nextQuestion();
+    }
+
+    // --- 3D 繪製邏輯 (火把石牆風格) ---
+    function animate() {
+        if (!state.active) return;
+
+        state.cameraZ += (state.targetZ - state.cameraZ) * 0.05;
+        state.angle += (state.targetAngle - state.angle) * 0.1;
+
+        const w = canvas.width, h = canvas.height;
+        ctx.fillStyle = '#050200'; // 偏向深棕色的黑，模擬地窖
+        ctx.fillRect(0, 0, w, h);
+
+        ctx.save();
+        ctx.translate(w / 2, h / 2);
+        ctx.rotate(state.angle);
+
+        // 繪製迷宮隧道 (火光色系)
+        for (let i = 20; i > 0; i--) {
+            let z = (i * 200) - (state.cameraZ % 200);
+            let size = 150000 / z;
+            let alpha = 1 - (z / 4000);
+            
+            // 使用橘黃色模擬火把反光
+            ctx.strokeStyle = `rgba(255, 150, 20, ${alpha})`;
+            ctx.lineWidth = 3; 
+            
+            ctx.strokeRect(-size/2, -size/2, size, size);
+            
+            ctx.beginPath();
+            ctx.moveTo(-size/2, -size/2); ctx.lineTo(-size*0.8, -size*0.8);
+            ctx.stroke();
+        }
+        ctx.restore();
+
+        requestAnimationFrame(animate);
+    }
+
+    function nextQuestion() {
+        if (!state.active) return;
+        state.isMoving = false;
+        
+        const q = rawQuestions[Math.floor(Math.random() * rawQuestions.length)];
+        state.currentQ = q;
+
+        document.getElementById('q-content').innerText = q.q;
+        const grid = document.getElementById('choice-grid');
+        grid.innerHTML = '';
+
+        const directions = ["左通道", "直行", "右通道"];
+        q.a.forEach((ans, i) => {
+            const btn = document.createElement('button');
+            btn.className = 'path-btn';
+            btn.innerText = `${directions[i]}：${ans}`;
+            btn.onclick = () => makeChoice(i);
+            grid.appendChild(btn);
+        });
+    }
+
+    function makeChoice(idx) {
+        if (state.isMoving) return;
+        state.isMoving = true;
+
+        if (idx === state.currentQ.correct) {
+            // 答對：安全深入
+            state.targetZ += 600;
+            state.step++;
+            updateUI();
+            
+            if (state.step >= state.goal) {
+                setTimeout(() => endGame(true), 1500);
+            } else {
+                setTimeout(nextQuestion, 1500);
+            }
+        } else {
+            // 答錯：觸發陷阱
+            state.hp -= 20;
+            state.targetAngle = (idx === 0) ? 0.5 : (idx === 2) ? -0.5 : 0.1; 
+            
+            setTimeout(() => {
+                triggerCrash();
+                state.targetAngle = 0; 
+                updateUI();
+                if (state.hp <= 0) {
+                    endGame(false);
+                } else {
+                    nextQuestion();
+                }
+            }, 600);
+        }
+    }
+
+    function triggerCrash() {
+        const filter = document.getElementById('crash-filter');
+        filter.style.animation = 'none';
+        filter.offsetHeight; 
+        filter.style.animation = 'crash-flash 0.8s forwards';
+        
+        const hudMsg = document.createElement('div');
+        hudMsg.style.cssText = "position:absolute; top:40%; left:50%; transform:translate(-50%,-50%); color:#e0d0c0; font-size:2em; text-shadow:0 0 15px red; font-family:'Cinzel', serif;";
+        hudMsg.innerText = "💥 觸發陷阱！正確知識應為：" + state.currentQ.a[state.currentQ.correct];
+        document.body.appendChild(hudMsg);
+        setTimeout(() => hudMsg.remove(), 2500);
+    }
+
+    function updateUI() {
+        document.getElementById('hp').innerText = state.hp;
+        document.getElementById('progress').innerText = `${state.step}/${state.goal}`;
+    }
+
+    function endGame(win) {
+        state.active = false;
+        const screen = document.getElementById('start-screen');
+        screen.style.display = 'flex';
+        screen.innerHTML = win ? 
+            `<h1 class="title-main">逃出生天</h1><p style="font-size:1.5em; color:#e0d0c0;">你帶著豐富的知識與財寶重返地表。</p><button onclick="location.reload()" style="margin-top:30px; padding:15px 40px; font-size:1.2em; background:none; border:2px solid var(--torch-gold); color:var(--torch-gold); cursor:pointer;">再次挑戰</button>` :
+            `<h1 class="title-main" style="color:var(--trap-red); text-shadow: 0 0 20px red;">靈魂受困</h1><p style="font-size:1.5em; color:#e0d0c0;">你的知識不足以應付迷宮的險惡，永遠留在了黑暗中。</p><button onclick="location.reload()" style="margin-top:30px; padding:15px 40px; font-size:1.2em; background:none; border:2px solid var(--trap-red); color:var(--trap-red); cursor:pointer;">重塑肉身</button>`;
+    }
+</script>
+
+</body>
+</html>
+
